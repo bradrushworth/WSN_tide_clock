@@ -42,6 +42,7 @@ long secondsUntilNext; // seconds until next tide
 boolean goingHighTide;
 unsigned long halfClockInSeconds = 6 * 3600 + 12 * 60 + 30;
 unsigned int servoCentre = 90;
+unsigned int maxServoReach = 173;
 
 DateTime now; // define variable to hold date and time
 // Enter the site name for display. 11 characters max
@@ -123,14 +124,17 @@ void loop() {
         future += 60;
         lastHeight = nextTideHeight;
         nextTideHeight = myTideCalc.currentTide(future);
-        Serial.print("Time: ");
-        Serial.print(future);
-        Serial.print(" | ");
-        Serial.print(nextTideHeight);
-        Serial.print(" <= ");
-        Serial.print(lastHeight);
-        Serial.println();
+    
+//        Serial.print("Time: ");
+//        Serial.print(future);
+//        Serial.print(" | ");
+//        Serial.print(nextTideHeight);
+//        Serial.print(" <= ");
+//        Serial.print(lastHeight);
+//        Serial.println();
       }
+
+      oled.clear();
     }
     secondsUntilNext = future - now.unixtime();
 
@@ -184,12 +188,14 @@ void loop() {
     digitalWrite(7, LOW);
     digitalWrite(8, HIGH);
 
-    int position = (1.0 * secondsUntilNext / halfClockInSeconds) * servoCentre;
+    float percentage = (1.0 * secondsUntilNext / halfClockInSeconds);
+    int position = percentage * servoCentre;
     if (goingHighTide) {
-      position = servoCentre - position;
+      position = 0 + position;
     } else {
       position = servoCentre + position;
     }
+    position = max(0, min(maxServoReach, position));
     myservo.write(position);
   }
 
