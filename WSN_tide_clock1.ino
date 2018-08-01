@@ -62,7 +62,8 @@ void setup() {
   //RTC.adjust(DateTime("Jul 31 2018", "13:22:00"));  // 5 min before low tide
   //RTC.adjust(DateTime("Jul 31 2018", "13:25:00"));  // 1 min before low tide
   //RTC.adjust(DateTime("Jul 31 2018", "13:27:00"));  // 1 min after low tide
-  //RTC.adjust(DateTime(__DATE__, __TIME__));  // Time and date is expanded to date and time on your computer at compiletime
+  //RTC.adjust(DateTime(__DATE__, __TIME__));         // Time and date is expanded to date and time on your computer at compiletime
+  //RTC.adjust(DateTime("Jul 31 2018", "19:20:00"));  // Current time
 
   // For debugging output to serial monitor
   Serial.begin(115200); // Set baud rate to 115200 in serial monitor
@@ -111,11 +112,11 @@ void loop() {
   
   if (secondsUntilNext <= 0) {
     Serial.println();
-    unsigned long highTide = localMax(now.unixtime(), now.unixtime() + halfClockInSeconds);
+    unsigned long highTide = localMax(now.unixtime(), now.unixtime() + halfClockInSeconds * 1.5);
     if (highTide == now.unixtime())
       highTide = invalidTime;
     Serial.println();
-    unsigned long lowTide  = localMin(now.unixtime(), now.unixtime() + halfClockInSeconds);
+    unsigned long lowTide  = localMin(now.unixtime(), now.unixtime() + halfClockInSeconds * 1.5);
     if (lowTide == now.unixtime())
       lowTide = invalidTime;
     Serial.println();
