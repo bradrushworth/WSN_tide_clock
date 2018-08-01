@@ -35,6 +35,7 @@ TideCalc myTideCalc; // Create TideCalc object
 SSD1306AsciiWire oled; // create oled display object
 
 unsigned long oldmillis; // keep track of update time
+unsigned long screenUpdateMs = 1000; // how often to update the screen (milliseconds)
 DateTime now; // define variable to hold date and time
 float height; // tide height
 unsigned long future; // future tide time
@@ -43,7 +44,7 @@ boolean goingHighTide; // yes or no
 unsigned long halfClockInSeconds = 6 * 3600 + 12 * 60 + 30; // how long is a tide cycle on the clock face
 unsigned int servoCentre = 90;
 unsigned int maxServoReach = 173; // some servos can't fully go to 180
-unsigned int searchIncrement = halfClockInSeconds / 180; // accuracy per degree of servo movement
+unsigned int searchIncrement = halfClockInSeconds / 180; // time accuracy per degree of servo movement
 unsigned long invalidTime = 2000000000l; // fake time when value isn't valid
 
 // Enter the site name for display. 11 characters max
@@ -84,16 +85,28 @@ void setup() {
 //------------------------------------------------------------------------------
 void loop() {
   unsigned int startTime = millis();
+  if (startTime < oldmillis) { // Check for long overflow after 58 days
+    oldmillis = 0;
+  }
 
   // Get current time, store in object "now"
   DateTime now = RTC.now();
 
   // The main statement block will run once per second
-  if ( oldmillis == 0 || oldmillis + searchIncrement * 1000 < millis() ) {
-    oldmillis = millis(); // update oldmillis
+//  Serial.print("tideHeight: oldmillis=");
+//  Serial.print(oldmillis);
+//  Serial.print(" (searchIncrement * 1000)=");
+//  Serial.print((searchIncrement * 1000));
+//  Serial.print(" startTime=");
+//  Serial.println(startTime);
+  if ( oldmillis == 0 || oldmillis + (searchIncrement * 1000) < startTime ) {
+    oldmillis = startTime; // update oldmillis
   
     // Calculate current tide height
     height = myTideCalc.currentTide(now);
+    Serial.println();
+    Serial.print("height=");
+    Serial.println(height, 3);
   }
   
   if (secondsUntilNext <= 0) {
@@ -183,7 +196,10 @@ void loop() {
   position = max(0, min(maxServoReach, position));
   myservo.write(position);
 
-  delay(1000 - (millis() - startTime));
+  unsigned int delayTime = screenUpdateMs - (millis() - startTime);
+  //Serial.print("delay: delayTime=");
+  //Serial.println(delayTime);
+  delay(delayTime);
 }
 
 // A binary search based function that returns
