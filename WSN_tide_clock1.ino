@@ -43,8 +43,9 @@ long secondsUntilNext; // seconds until next tide
 boolean goingHighTide; // yes or no
 unsigned long halfClockInSeconds = 6 * 3600 + 12 * 60 + 30; // how long is a tide cycle on the clock face
 unsigned int servoCentre = 90;
-unsigned int maxServoReach = 173; // some servos can't fully go to 180
-unsigned int searchIncrement = halfClockInSeconds / 180; // time accuracy per degree of servo movement
+unsigned int minServoReach = 0;
+unsigned int maxServoReach = 190; //173; // some servos can't fully go to 180
+unsigned int searchIncrement = halfClockInSeconds / maxServoReach; // time accuracy per degree of servo movement
 unsigned long invalidTime = 2000000000l; // fake time when value isn't valid
 
 // Enter the site name for display. 11 characters max
@@ -54,16 +55,18 @@ char siteName[20] = "Batemans Bay";
 void setup() {
   Wire.begin();
   RTC.begin();
-  //RTC.adjust(DateTime("Jul 31 2018", "18:35:00"));  // 1 hr before high tide
-  //RTC.adjust(DateTime("Jul 31 2018", "19:20:00"));  // 15 min before high tide
-  //RTC.adjust(DateTime("Jul 31 2018", "19:34:30"));  // 1 min before high tide
-  //RTC.adjust(DateTime("Jul 31 2018", "19:37:00"));  // 1 min after high tide
-  //RTC.adjust(DateTime("Jul 31 2018", "12:25:00"));  // 1 hr before low tide
-  //RTC.adjust(DateTime("Jul 31 2018", "13:22:00"));  // 5 min before low tide
-  //RTC.adjust(DateTime("Jul 31 2018", "13:25:00"));  // 1 min before low tide
-  //RTC.adjust(DateTime("Jul 31 2018", "13:27:00"));  // 1 min after low tide
+  //RTC.adjust(DateTime("Jul 31 2018", "20:21:00"));  // 3 hr before high tide
+  //RTC.adjust(DateTime("Jul 31 2018", "22:21:00"));  // 1 hr before high tide
+  //RTC.adjust(DateTime("Jul 31 2018", "23:13:00"));  // 15 min before high tide
+  //RTC.adjust(DateTime("Jul 31 2018", "23:25:00"));  // 1 min before high tide
+  //RTC.adjust(DateTime("Jul 31 2018", "23:30:00"));  // 1 min after high tide
+  //RTC.adjust(DateTime("Jul 31 2018", "14:14:00"));  // 3 hr before low tide
+  //RTC.adjust(DateTime("Jul 31 2018", "16:15:00"));  // 1 hr before low tide
+  //RTC.adjust(DateTime("Jul 31 2018", "17:10:00"));  // 5 min before low tide
+  //RTC.adjust(DateTime("Jul 31 2018", "17:14:00"));  // 1 min before low tide
+  //RTC.adjust(DateTime("Jul 31 2018", "17:17:00"));  // 1 min after low tide
   //RTC.adjust(DateTime(__DATE__, __TIME__));         // Time and date is expanded to date and time on your computer at compiletime
-  //RTC.adjust(DateTime("Jul 31 2018", "19:20:00"));  // Current time
+  //RTC.adjust(DateTime("Aug 06 2018", "20:30:00"));  // Current time
 
   // For debugging output to serial monitor
   Serial.begin(115200); // Set baud rate to 115200 in serial monitor
@@ -188,13 +191,14 @@ void loop() {
   digitalWrite(8, HIGH);
 
   float percentage = (1.0 * secondsUntilNext / halfClockInSeconds);
-  int position = percentage * servoCentre;
+  float position; // = percentage * servoCentre;
   if (goingHighTide) {
-    position = 0 + position; // 0 to 90 degrees
+    position = minServoReach + (percentage * servoCentre); // 0 to 90 degrees
   } else {
-    position = servoCentre + position; // 90 to 180 degrees
+    position = servoCentre + (percentage * maxServoReach / 2.0); // 90 to 180 degrees
   }
-  position = max(0, min(maxServoReach, position));
+  position = max(minServoReach, min(maxServoReach, position));
+  position = servoCentre + position/8;
   myservo.write(position);
 
   unsigned int delayTime = screenUpdateMs - (millis() - startTime);
