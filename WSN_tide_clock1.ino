@@ -18,10 +18,12 @@
 #include <Servo.h>
 #include "LowPower.h"
 
+const boolean verbose = false;
+
 // Real Time Clock setup
 RTC_DS3231 RTC; // Uncomment when using this chip
 
-Servo myservo;  // create servo object to control a servo
+Servo timeServo, heightServo;  // create servo object to control a servo
 
 // Tide calculation library setup.
 // Change the library name here to predict for a different site.
@@ -36,7 +38,8 @@ SSD1306AsciiWire oled; // create oled display object
 
 const unsigned int wakeUpPin = 2;
 const unsigned int ledPin = 13;
-const unsigned int servoPin = 11;
+const unsigned int heightServoPin = 9;
+const unsigned int timeServoPin = 11;
 
 unsigned long oldUnixtime; // keep track of update time
 const unsigned long screenUpdateMs = 1000; // how often to update the screen (milliseconds)
@@ -46,15 +49,17 @@ float height; // tide height
 unsigned long future; // future tide time
 long secondsUntilNext; // seconds until next tide
 boolean goingHighTide; // yes or no
+const float maxTideHeight = 2.0; // metres
 const unsigned long halfClockInSeconds = 6 * 3600 + 12 * 60 + 30; // how long is a tide cycle on the clock face
 const unsigned int servoCentre = 90;
-const unsigned int minServoReach = 0;
-const unsigned int maxServoReach = 190; //173; // some servos can't fully go to 180
-const unsigned int searchIncrement = halfClockInSeconds / maxServoReach; // time accuracy (seconds) per degree of servo movement
+const unsigned int timeMinServoReach = 0;
+const unsigned int timeMaxServoReach = 190; // some servos can't fully go to 180
+const unsigned int heightMinServoReach = 0;
+const unsigned int heightMaxServoReach = 173; // some servos can't fully go to 180
+const unsigned int searchIncrement = halfClockInSeconds / timeMaxServoReach; // time accuracy (seconds) per degree of servo movement
 const unsigned long invalidTime = 2000000000l; // fake time when value isn't valid
 const unsigned int screenOnTimeMs = 10 * screenUpdateMs;
 unsigned int screenOnCountdownMs = screenOnTimeMs;
-const boolean verbose = false;
 
 // Enter the site name for display. 11 characters max
 char siteName[20] = "Batemans Bay";
@@ -83,7 +88,8 @@ void setup() {
   Serial.print(" time=");
   Serial.println(__TIME__);
   
-  myservo.attach(servoPin);  // attaches the servo on pin 11 (Timer 2 which is usable in low-power state)
+  timeServo.attach(timeServoPin); // attaches the servo on pin 11 (Timer 2 which is usable in low-power state)
+  heightServo.attach(heightServoPin);
   pinMode(ledPin, OUTPUT);
   pinMode(wakeUpPin, INPUT);
 
@@ -124,8 +130,15 @@ void loop() {
     Serial.print("height=");
     Serial.println(height, 3);
   }
+  int heightPosition = heightMaxServoReach - (height / maxTideHeight * (servoCentre * 2));
+  if (heightPosition < heightMinServoReach) heightPosition = heightMinServoReach;
+  if (heightPosition > heightMaxServoReach) heightPosition = heightMaxServoReach;
+  heightServo.write(heightPosition);
+  Serial.print("heightPosition=");
+  Serial.println(heightPosition);
   
   if (secondsUntilNext <= 0) {
+    wakeUp();
     Serial.println();
     unsigned long highTide = localMax(now.unixtime(), now.unixtime() + halfClockInSeconds * 1.5);
     if (highTide == now.unixtime())
@@ -160,13 +173,13 @@ void loop() {
   float percentage = (1.0 * secondsUntilNext / halfClockInSeconds);
   float position; // = percentage * servoCentre;
   if (goingHighTide) {
-    position = minServoReach + (percentage * servoCentre); // 0 to 90 degrees
+    position = timeMinServoReach + (percentage * servoCentre); // 0 to 90 degrees
   } else {
-    position = servoCentre + (percentage * maxServoReach / 2.0); // 90 to 180 degrees
+    position = servoCentre + (percentage * timeMaxServoReach / 2.0); // 90 to 180 degrees
   }
-  position = max(minServoReach, min(maxServoReach, position));
+  position = max(timeMinServoReach, min(timeMaxServoReach, position));
   position = servoCentre + position/8;
-  myservo.write(position);
+  timeServo.write(position);
 
   char buf[20]; // declare a string buffer to hold the time result
   // Create a string representation of the date and time,
@@ -228,8 +241,9 @@ void loop() {
 
     // Enter idle state for 500ms with the rest of peripherals turned off, except the servo.
     LowPower.powerSave(SLEEP_500MS, ADC_OFF, BOD_OFF, TIMER2_ON);
+    //delay(500);
   } else {
-    delay(delayTime);
+    delay(delayTime + powerDownMs);
     digitalWrite(ledPin, LOW);
 
     // Turn off the OLED screen
@@ -238,12 +252,15 @@ void loop() {
     // Allow wake up pin to trigger interrupt on low.
     //attachInterrupt(0, wakeUp, HIGH);
 
-    // Power down for 30s with ADC module and BOD module off. This disables the servo movement.
+    // Power down for 60s with ADC module and BOD module off. This disables the servo movement.
+    LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
+    LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
+    LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
+    LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
     LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
     LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
     LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
     LowPower.powerDown(SLEEP_4S, ADC_OFF, BOD_OFF);
-    LowPower.powerDown(SLEEP_2S, ADC_OFF, BOD_OFF);
 
     // Disable external pin interrupt on wake up pin.
     //detachInterrupt(0);
