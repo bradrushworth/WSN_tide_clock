@@ -16,6 +16,7 @@
 #include <SPI.h> // Required for RTClib to compile properly
 #include <RTClib.h> // From https://github.com/millerlp/RTClib
 #include <Servo.h>
+#include "LowPower.h"
 
 // Real Time Clock setup
 RTC_DS3231 RTC; // Uncomment when using this chip
@@ -31,22 +32,29 @@ TideCalc myTideCalc; // Create TideCalc object
 
 // 0X3C+SA0 - 0x3C or 0x3D for oled screen on I2C bus
 #define I2C_ADDRESS 0x3C
-
 SSD1306AsciiWire oled; // create oled display object
 
-unsigned long oldmillis; // keep track of update time
-unsigned long screenUpdateMs = 1000; // how often to update the screen (milliseconds)
+const unsigned int wakeUpPin = 2;
+const unsigned int ledPin = 13;
+const unsigned int servoPin = 11;
+
+unsigned long oldUnixtime; // keep track of update time
+const unsigned long screenUpdateMs = 1000; // how often to update the screen (milliseconds)
+const unsigned long powerDownMs = 500; // how long the CPU is powered down (milliseconds)
 DateTime now; // define variable to hold date and time
 float height; // tide height
 unsigned long future; // future tide time
 long secondsUntilNext; // seconds until next tide
 boolean goingHighTide; // yes or no
-unsigned long halfClockInSeconds = 6 * 3600 + 12 * 60 + 30; // how long is a tide cycle on the clock face
-unsigned int servoCentre = 90;
-unsigned int minServoReach = 0;
-unsigned int maxServoReach = 190; //173; // some servos can't fully go to 180
-unsigned int searchIncrement = halfClockInSeconds / maxServoReach; // time accuracy per degree of servo movement
-unsigned long invalidTime = 2000000000l; // fake time when value isn't valid
+const unsigned long halfClockInSeconds = 6 * 3600 + 12 * 60 + 30; // how long is a tide cycle on the clock face
+const unsigned int servoCentre = 90;
+const unsigned int minServoReach = 0;
+const unsigned int maxServoReach = 190; //173; // some servos can't fully go to 180
+const unsigned int searchIncrement = halfClockInSeconds / maxServoReach; // time accuracy (seconds) per degree of servo movement
+const unsigned long invalidTime = 2000000000l; // fake time when value isn't valid
+const unsigned int screenOnTimeMs = 10 * screenUpdateMs;
+unsigned int screenOnCountdownMs = screenOnTimeMs;
+const boolean verbose = false;
 
 // Enter the site name for display. 11 characters max
 char siteName[20] = "Batemans Bay";
@@ -75,36 +83,40 @@ void setup() {
   Serial.print(" time=");
   Serial.println(__TIME__);
   
-  myservo.attach(9);  // attaches the servo on pin 9 to the servo objects
-  pinMode(8, OUTPUT);          // sets the digital pin as output
-  pinMode(7, OUTPUT);          // sets the digital pin as output
+  myservo.attach(servoPin);  // attaches the servo on pin 11 (Timer 2 which is usable in low-power state)
+  pinMode(ledPin, OUTPUT);
+  pinMode(wakeUpPin, INPUT);
+
+  // Allow wake up pin to trigger interrupt on high.
+  attachInterrupt(0, wakeUp, HIGH);
 
   // Start up the oled display
   oled.begin(&Adafruit128x64, I2C_ADDRESS);
   oled.setFont(Adafruit5x7);
   oled.clear();
 
-  oldmillis = 0;
+  oldUnixtime = 0;
 }
 //------------------------------------------------------------------------------
 void loop() {
-  unsigned int startTime = millis();
-  if (startTime < oldmillis) { // Check for long overflow after 58 days
-    oldmillis = 0;
-  }
+  digitalWrite(ledPin, HIGH);
+  
+  unsigned long startTime = millis();
 
   // Get current time, store in object "now"
   DateTime now = RTC.now();
 
   // The main statement block will run once per second
-//  Serial.print("tideHeight: oldmillis=");
-//  Serial.print(oldmillis);
-//  Serial.print(" (searchIncrement * 1000)=");
-//  Serial.print((searchIncrement * 1000));
-//  Serial.print(" startTime=");
-//  Serial.println(startTime);
-  if ( oldmillis == 0 || oldmillis + (searchIncrement * 1000) < startTime ) {
-    oldmillis = startTime; // update oldmillis
+  if (verbose) {
+    Serial.print("tideHeight: oldUnixtime=");
+    Serial.print(oldUnixtime);
+    Serial.print(" searchIncrement=");
+    Serial.print(searchIncrement);
+    Serial.print(" now.unixtime()=");
+    Serial.println(now.unixtime());
+  }
+  if ( oldUnixtime == 0 || oldUnixtime + searchIncrement < now.unixtime() ) {
+    oldUnixtime = now.unixtime(); // update oldUnixtime
   
     // Calculate current tide height
     height = myTideCalc.currentTide(now);
@@ -145,6 +157,17 @@ void loop() {
   }
   secondsUntilNext = future - now.unixtime();
 
+  float percentage = (1.0 * secondsUntilNext / halfClockInSeconds);
+  float position; // = percentage * servoCentre;
+  if (goingHighTide) {
+    position = minServoReach + (percentage * servoCentre); // 0 to 90 degrees
+  } else {
+    position = servoCentre + (percentage * maxServoReach / 2.0); // 90 to 180 degrees
+  }
+  position = max(minServoReach, min(maxServoReach, position));
+  position = servoCentre + position/8;
+  myservo.write(position);
+
   char buf[20]; // declare a string buffer to hold the time result
   // Create a string representation of the date and time,
   // which will be put into 'buf'.
@@ -170,7 +193,7 @@ void loop() {
   } else {
     oled.print("low");
   }
-  oled.println(":");
+  oled.println(": "); // Extra space because "low" is a character less than "high"
   oled.set2X(); // Enable large font
   //oled.println(subbuf); // print hour:min:sec
   //secondsUntilNext = 15 * 3600l + 54 * 60l + 36;
@@ -187,24 +210,47 @@ void loop() {
   if (second < 10) oled.print("0");
   oled.print(second); // secs until next tide
 
-  digitalWrite(7, LOW);
-  digitalWrite(8, HIGH);
-
-  float percentage = (1.0 * secondsUntilNext / halfClockInSeconds);
-  float position; // = percentage * servoCentre;
-  if (goingHighTide) {
-    position = minServoReach + (percentage * servoCentre); // 0 to 90 degrees
-  } else {
-    position = servoCentre + (percentage * maxServoReach / 2.0); // 90 to 180 degrees
+  int delayTime = screenUpdateMs - powerDownMs - (millis() - startTime);
+  if (delayTime < 0) delayTime = screenUpdateMs / 2;
+  if (verbose) {
+    Serial.print("delay: delayTime=");
+    Serial.println(delayTime);
   }
-  position = max(minServoReach, min(maxServoReach, position));
-  position = servoCentre + position/8;
-  myservo.write(position);
 
-  unsigned int delayTime = screenUpdateMs - (millis() - startTime);
-  //Serial.print("delay: delayTime=");
-  //Serial.println(delayTime);
-  delay(delayTime);
+  if (screenOnCountdownMs > 0) {
+    screenOnCountdownMs -= screenUpdateMs;
+
+    // Turn on the OLED screen
+    oled.ssd1306WriteCmd(SSD1306_DISPLAYON);
+
+    delay(delayTime);
+    digitalWrite(ledPin, LOW);
+
+    // Enter idle state for 500ms with the rest of peripherals turned off, except the servo.
+    LowPower.powerSave(SLEEP_500MS, ADC_OFF, BOD_OFF, TIMER2_ON);
+  } else {
+    delay(delayTime);
+    digitalWrite(ledPin, LOW);
+
+    // Turn off the OLED screen
+    oled.ssd1306WriteCmd(SSD1306_DISPLAYOFF);
+
+    // Allow wake up pin to trigger interrupt on low.
+    //attachInterrupt(0, wakeUp, HIGH);
+
+    // Power down for 30s with ADC module and BOD module off. This disables the servo movement.
+    LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
+    LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
+    LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
+    LowPower.powerDown(SLEEP_4S, ADC_OFF, BOD_OFF);
+    LowPower.powerDown(SLEEP_2S, ADC_OFF, BOD_OFF);
+
+    // Disable external pin interrupt on wake up pin.
+    //detachInterrupt(0);
+
+    // Create an empty line
+    if (verbose) Serial.println();
+  }
 }
 
 // A binary search based function that returns
@@ -293,4 +339,10 @@ unsigned long localMaxUtil(unsigned long low, unsigned long high, unsigned long 
 unsigned long localMax(unsigned long beginning, unsigned long end)
 {
     return localMaxUtil(beginning, end, end);
+}
+
+// Just a handler for the pin interrupt.
+void wakeUp()
+{
+    screenOnCountdownMs = screenOnTimeMs;
 }
