@@ -4,7 +4,6 @@
     the tide height and time on a ssd1306-controller OLED
     128x64 display. Time updates every second, tide updates
     as the last significant digit changes (10-20 seconds).
-
 */
 
 #define ENABLE_OLED true
@@ -15,7 +14,8 @@
 // 0X3C+SA0 - 0x3C or 0x3D for oled screen on I2C bus
 #define OLED_I2C_ADDRESS 0x3C
 
-const boolean verbose = false;
+const boolean info = true;
+const boolean debug = false;
 
 #if ENABLE_OLED
 //#include <Wire.h>
@@ -42,7 +42,7 @@ RTC_DS3231 RTC; // Uncomment when using this chip
 #include "moon.h"
 #endif
 
-Servo timeServo, heightServo;  // create servo object to control a servo
+Servo timeServo, heightServo, sunElevationServo, moonPhaseServo;  // create servo object to control a servo
 
 // Tide calculation library setup.
 // Change the library name here to predict for a different site.
@@ -57,8 +57,10 @@ SSD1306AsciiWire oled; // create oled display object
 
 const unsigned int wakeUpPin = 2;
 const unsigned int ledPin = 13;
-const unsigned int heightServoPin = 9;
 const unsigned int timeServoPin = 11;
+const unsigned int heightServoPin = 9;
+const unsigned int sunElevationServoPin = 5;
+const unsigned int moonPhaseServoPin = 6;
 
 // Enter the site name for display. 11 characters max
 const char siteName[20] = "Batemans Bay";
@@ -107,15 +109,19 @@ void setup() {
   //RTC.adjust(DateTime(__DATE__, __TIME__));         // Time and date is expanded to date and time on your computer at compiletime
   //RTC.adjust(DateTime("Aug 06 2018", "20:30:00"));  // Current time
 
-  // For debugging output to serial monitor
-  Serial.begin(115200); // Set baud rate to 115200 in serial monitor
-  Serial.print("COMPILED AT: date=");
-  Serial.print(__DATE__);
-  Serial.print(" time=");
-  Serial.println(__TIME__);
+  if (info) {
+    // For debugging output to serial monitor
+    Serial.begin(115200); // Set baud rate to 115200 in serial monitor
+    Serial.print("COMPILED AT: date=");
+    Serial.print(__DATE__);
+    Serial.print(" time=");
+    Serial.println(__TIME__);
+  }
 
   timeServo.attach(timeServoPin); // attaches the servo on pin 11 (Timer 2 which is usable in low-power state)
   heightServo.attach(heightServoPin);
+  sunElevationServo.attach(sunElevationServoPin);
+  moonPhaseServo.attach(moonPhaseServoPin);
   pinMode(ledPin, OUTPUT);
   pinMode(wakeUpPin, INPUT);
 
@@ -138,7 +144,7 @@ void loop() {
   dateTime = RTC.now();
 
   // The main statement block will run once per second
-  if (verbose) {
+  if (debug) {
     Serial.print("tideHeight: oldUnixtime=");
     Serial.print(oldUnixtime);
     Serial.print(" searchIncrement=");
@@ -151,10 +157,12 @@ void loop() {
 
     // Calculate current tide height
     height = myTideCalc.currentTide(dateTime);
-    Serial.println();
-    Serial.print("Tide height=");
-    Serial.println(height, 3);
-    Serial.println();
+    if (info) {
+      Serial.println();
+      Serial.print("Tide height=");
+      Serial.println(height, 3);
+      Serial.println();
+    }
 
 #if ENABLE_SUN_RISE
     sunTimes.time(dateTime.year(), dateTime.month(), dateTime.day(), dateTime.hour(), dateTime.minute(), dateTime.second()); //insert year, month, day, hour, minutes and seconds
@@ -165,47 +173,71 @@ void loop() {
     float az_deg = sunTimes.azimuth_deg();                        //store sun's azimuth in degrees
     float sunrise = sunTimes.sunrise_time();                      //store sunrise time in decimal form
     float sunset = sunTimes.sunset_time();                        //store sunset time in decimal form
-    Serial.println("Sun rise/set times:");
-    Serial.print("elevation in degrees=");
-    Serial.println(el_deg);
-    Serial.print("azimouth in degrees=");
-    Serial.println(az_deg);
-    Serial.print("time of sunrise in decimal form=");
-    Serial.println(sunrise);
-    Serial.print("time of sunset in decimal form=");
-    Serial.println(sunset);
-    Serial.println();
+
+    // 90 degrees is sunrise/sunset. 180 is high noon. 0 is night.
+    float el_servo = servoCentre + el_deg;
+    if (el_servo < heightMinServoReach) el_servo = heightMinServoReach;
+    if (el_servo > heightMaxServoReach) el_servo = heightMaxServoReach;
+    sunElevationServo.write(el_servo);
+    if (info) {
+      Serial.println("Sun rise/set times:");
+      Serial.print("  Elevation (degrees)=");
+      Serial.println(el_deg);
+      Serial.print("  Elevation (servo degrees)=");
+      Serial.println(el_servo);
+      Serial.print("  Azimouth (degrees)=");
+      Serial.println(az_deg);
+      Serial.print("  Time of sunrise (decimal form)=");
+      Serial.println(sunrise);
+      Serial.print("  Time of sunset (decimal form)=");
+      Serial.println(sunset);
+      Serial.println();
+    }
 #endif
 
 #if ENABLE_MOON_PHASE
     float frac = MoonPhase(dateTime.year(), dateTime.month(), dateTime.day());
-    Serial.print("Moon phase=");
-    Serial.println(frac);
-    Serial.println();
+
+    // Go from 0 to 180 for New Moon (0) to Full Moon (90) to New Moon (180)
+    float servoFrac = (1 - frac) * (servoCentre * 2);
+    if (servoFrac < heightMinServoReach) servoFrac = heightMinServoReach;
+    if (servoFrac > heightMaxServoReach) servoFrac = heightMaxServoReach;
+    moonPhaseServo.write(servoFrac);
+    
+    if (info) {
+      Serial.print("MoonPhase: Moon Phase=");
+      Serial.println(frac);
+      Serial.print("MoonPhase: Moon Phase Servo=");
+      Serial.println(servoFrac);
+      Serial.println();
+    }
 #endif
 
 #if ENABLE_MOON_RISE
     riseset(lat, lon, false);
     //    setTime(dateTime.unixtime());
     //    moon_init(lat, lon); // pass it lat / lon - it uses ints for the calculation...
-    //    Serial.println("Moon rise/set times:");
-    //    Serial.print("now=");
-    //    Serial.print(now());
-    //    Serial.print(" day=");
-    //    Serial.println(day());
-    //    Serial.print("rise azimouth in degrees=");
-    //    Serial.println(Moon.riseAZ);
-    //    Serial.print("set azimouth in degrees=");
-    //    Serial.println(Moon.setAZ);
-    Serial.print("time of moonrise=");
-    Serial.print(Moon.riseH);
-    Serial.print(":");
-    Serial.println(Moon.riseM);
-    Serial.print("time of moonset=");
-    Serial.print(Moon.setH);
-    Serial.print(":");
-    Serial.println(Moon.setM);
-    Serial.println();
+    
+    if (info) {
+      //    Serial.println("Moon rise/set times:");
+      //    Serial.print("now=");
+      //    Serial.print(now());
+      //    Serial.print(" day=");
+      //    Serial.println(day());
+      //    Serial.print("rise azimouth in degrees=");
+      //    Serial.println(Moon.riseAZ);
+      //    Serial.print("set azimouth in degrees=");
+      //    Serial.println(Moon.setAZ);
+      Serial.print("MoonRise: Rise=");
+      Serial.print(Moon.riseH);
+      Serial.print(":");
+      Serial.println(Moon.riseM);
+      Serial.print("MoonRise: Set=");
+      Serial.print(Moon.setH);
+      Serial.print(":");
+      Serial.println(Moon.setM);
+      Serial.println();
+    }
 #endif
   }
   int heightPosition = heightMaxServoReach - (height / maxTideHeight * (servoCentre * 2));
@@ -222,34 +254,36 @@ void loop() {
 
     wakeUp(); // Turn on the screen and move servos
 
-    Serial.println();
+    if (info) Serial.println();
     unsigned long highTide = localMax(dateTime.unixtime(), dateTime.unixtime() + halfClockInSeconds * 1.5);
     if (highTide == dateTime.unixtime())
       highTide = invalidTime;
-    Serial.println();
+    if (info) Serial.println();
     unsigned long lowTide  = localMin(dateTime.unixtime(), dateTime.unixtime() + halfClockInSeconds * 1.5);
     if (lowTide == dateTime.unixtime())
       lowTide = invalidTime;
-    Serial.println();
-    Serial.print("highTide=");
-    Serial.print(highTide);
-    Serial.print(" (");
-    Serial.print(highTide - dateTime.unixtime());
-    Serial.print(") lowTide=");
-    Serial.print(lowTide);
-    Serial.print(" (");
-    Serial.print(lowTide - dateTime.unixtime());
-    Serial.print(")");
+    if (info) {
+      Serial.println();
+      Serial.print("highTide=");
+      Serial.print(highTide);
+      Serial.print(" (");
+      Serial.print(highTide - dateTime.unixtime());
+      Serial.print(") lowTide=");
+      Serial.print(lowTide);
+      Serial.print(" (");
+      Serial.print(lowTide - dateTime.unixtime());
+      Serial.print(")");
+    }
     if (highTide < lowTide) {
       goingHighTide = true;
       future = highTide;
-      Serial.print(" goingHighTide=true");
+      if (info) Serial.print(" goingHighTide=true");
     } else {
       goingHighTide = false;
       future = lowTide;
-      Serial.print(" goingHighTide=false");
+      if (info) Serial.print(" goingHighTide=false");
     }
-    Serial.println();
+    if (info) Serial.println();
   }
   secondsUntilNext = future - dateTime.unixtime();
 
@@ -310,7 +344,7 @@ void loop() {
 
   int delayTime = screenUpdateMs - powerDownMs - (millis() - startTime);
   if (delayTime < 0) delayTime = screenUpdateMs / 2;
-  if (verbose) {
+  if (debug) {
     Serial.print("delay: delayTime=");
     Serial.println(delayTime);
   }
@@ -326,11 +360,16 @@ void loop() {
     delay(delayTime);
     digitalWrite(ledPin, LOW);
 
+    // Allow wake up pin to trigger interrupt on low.
+    attachInterrupt(0, wakeUp, HIGH);
+    
     // Enter idle state for 500ms with the rest of peripherals turned off, except the servo.
     LowPower.powerSave(SLEEP_500MS, ADC_OFF, BOD_OFF, TIMER2_ON);
-    //delay(500);
+
+    // Disable external pin interrupt on wake up pin.
+    detachInterrupt(0);
   } else {
-    delay(delayTime + powerDownMs);
+    delay(delayTime);
     digitalWrite(ledPin, LOW);
 
 #if ENABLE_OLED
@@ -355,7 +394,7 @@ void loop() {
     detachInterrupt(0);
 
     // Create an empty line
-    if (verbose) Serial.println();
+    if (debug) Serial.println();
   }
 }
 
@@ -365,15 +404,17 @@ unsigned long localMinUtil(unsigned long low, unsigned long high, unsigned long 
 {
   // Find index of middle element
   unsigned long mid = low + (high - low) / 2; /* (low + high)/2 */
-  Serial.print("localMinUtil: low=");
-  Serial.print(low);
-  Serial.print(" mid=");
-  Serial.print(mid);
-  Serial.print(" high=");
-  Serial.print(high);
-  Serial.print(" currentTide=");
-  Serial.print(myTideCalc.currentTide(mid), 5);
-  Serial.println();
+  if (info) {
+    Serial.print("localMinUtil: low=");
+    Serial.print(low);
+    Serial.print(" mid=");
+    Serial.print(mid);
+    Serial.print(" high=");
+    Serial.print(high);
+    Serial.print(" currentTide=");
+    Serial.print(myTideCalc.currentTide(mid), 5);
+    Serial.println();
+  }
 
   // If the mid is the same as the low and high, quit
   if (high - low < searchIncrement)
@@ -409,15 +450,17 @@ unsigned long localMaxUtil(unsigned long low, unsigned long high, unsigned long 
 {
   // Find index of middle element
   unsigned long mid = low + (high - low) / 2; /* (low + high)/2 */
-  Serial.print("localMaxUtil: low=");
-  Serial.print(low);
-  Serial.print(" mid=");
-  Serial.print(mid);
-  Serial.print(" high=");
-  Serial.print(high);
-  Serial.print(" currentTide=");
-  Serial.print(myTideCalc.currentTide(mid), 5);
-  Serial.println();
+  if (info) {
+    Serial.print("localMaxUtil: low=");
+    Serial.print(low);
+    Serial.print(" mid=");
+    Serial.print(mid);
+    Serial.print(" high=");
+    Serial.print(high);
+    Serial.print(" currentTide=");
+    Serial.print(myTideCalc.currentTide(mid), 5);
+    Serial.println();
+  }
 
   // If the mid is the same as the low and high, quit
   if (high - low < searchIncrement)
@@ -473,9 +516,10 @@ float MoonPhase(int nYear, int nMonth, int nDay) // calculate the current phase 
     JD = JD - K3;
   }
 
-  // Serial.print(" JD ");  //Julian Day, checked OK
-  // Serial.print(JD);
-  // Serial.print(" ");
+  if (info) {
+    Serial.print("MoonPhase: JD=");  //Julian Day, checked OK
+    Serial.println(JD);
+  }
 
   days_since = JD - 2451550L; //since noon on Jan. 6, 2000 (new moon @18:00)
   phase = (days_since - 0.25) / 29.53059; //0.25 = correct for 6 pm that day
@@ -485,8 +529,10 @@ float MoonPhase(int nYear, int nMonth, int nDay) // calculate the current phase 
   // calculate fraction full
   frac = (1.0 - cos(phase * 2 * PI)) * 0.5;
 
-  // Serial.print("Moon Age ");
-  // Serial.print(age);
+  if (info) {
+    Serial.print("MoonPhase: Moon Age=");
+    Serial.println(age);
+  }
 
   return frac; //phase or age or frac, as desired
 }
