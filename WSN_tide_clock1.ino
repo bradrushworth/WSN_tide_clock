@@ -10,6 +10,8 @@
 
 */
 
+const boolean verbose = false;
+
 #include <Wire.h>
 #include "SSD1306Ascii.h" // https://github.com/greiman/SSD1306Ascii
 #include "SSD1306AsciiWire.h" // https://github.com/greiman/SSD1306Ascii
@@ -17,11 +19,14 @@
 #include <RTClib.h> // From https://github.com/millerlp/RTClib
 #include <Servo.h>
 #include "LowPower.h"
-
-const boolean verbose = false;
+#include <sundata.h>
+//#include "Time.h"
+//#include "Moon.h"
 
 // Real Time Clock setup
 RTC_DS3231 RTC; // Uncomment when using this chip
+
+#include "moon.h"
 
 Servo timeServo, heightServo;  // create servo object to control a servo
 
@@ -34,17 +39,23 @@ TideCalc myTideCalc; // Create TideCalc object
 
 // 0X3C+SA0 - 0x3C or 0x3D for oled screen on I2C bus
 #define I2C_ADDRESS 0x3C
-SSD1306AsciiWire oled; // create oled display object
+//SSD1306AsciiWire oled; // create oled display object
 
 const unsigned int wakeUpPin = 2;
 const unsigned int ledPin = 13;
 const unsigned int heightServoPin = 9;
 const unsigned int timeServoPin = 11;
 
+// Enter the site name for display. 11 characters max
+const char siteName[20] = "Batemans Bay";
+const int lat = -35;
+const int lon = 150;
+const float timezone = 10;
+
 unsigned long oldUnixtime; // keep track of update time
 const unsigned long screenUpdateMs = 1000; // how often to update the screen (milliseconds)
 const unsigned long powerDownMs = 500; // how long the CPU is powered down (milliseconds)
-DateTime now; // define variable to hold date and time
+DateTime dateTime; // define variable to hold date and time
 float height; // tide height
 unsigned long future; // future tide time
 long secondsUntilNext; // seconds until next tide
@@ -53,7 +64,7 @@ const float maxTideHeight = 2.0; // metres
 const unsigned long halfClockInSeconds = 6 * 3600 + 12 * 60 + 30; // how long is a tide cycle on the clock face
 const unsigned int servoCentre = 90;
 const unsigned int timeMinServoReach = 0;
-const unsigned int timeMaxServoReach = 190; // some servos can't fully go to 180
+const unsigned int timeMaxServoReach = 200; // some servos can't fully go to 180
 const unsigned int heightMinServoReach = 0;
 const unsigned int heightMaxServoReach = 173; // some servos can't fully go to 180
 const unsigned int searchIncrement = halfClockInSeconds / timeMaxServoReach; // time accuracy (seconds) per degree of servo movement
@@ -61,8 +72,7 @@ const unsigned long invalidTime = 2000000000l; // fake time when value isn't val
 const unsigned int screenOnTimeMs = 10 * screenUpdateMs;
 unsigned int screenOnCountdownMs = screenOnTimeMs;
 
-// Enter the site name for display. 11 characters max
-char siteName[20] = "Batemans Bay";
+sundata sunTimes = sundata(lat, lon, timezone);
 
 //------------------------------------------------------------------------------
 void setup() {
@@ -97,9 +107,9 @@ void setup() {
   attachInterrupt(0, wakeUp, HIGH);
 
   // Start up the oled display
-  oled.begin(&Adafruit128x64, I2C_ADDRESS);
-  oled.setFont(Adafruit5x7);
-  oled.clear();
+//  oled.begin(&Adafruit128x64, I2C_ADDRESS);
+//  oled.setFont(Adafruit5x7);
+//  oled.clear();
 
   oldUnixtime = 0;
 }
@@ -109,8 +119,8 @@ void loop() {
   
   unsigned long startTime = millis();
 
-  // Get current time, store in object "now"
-  DateTime now = RTC.now();
+  // Get current time
+  dateTime = RTC.now();
 
   // The main statement block will run once per second
   if (verbose) {
@@ -118,44 +128,91 @@ void loop() {
     Serial.print(oldUnixtime);
     Serial.print(" searchIncrement=");
     Serial.print(searchIncrement);
-    Serial.print(" now.unixtime()=");
-    Serial.println(now.unixtime());
+    Serial.print(" dateTime.unixtime()=");
+    Serial.println(dateTime.unixtime());
   }
-  if ( oldUnixtime == 0 || oldUnixtime + searchIncrement < now.unixtime() ) {
-    oldUnixtime = now.unixtime(); // update oldUnixtime
+  if ( oldUnixtime == 0 || oldUnixtime + searchIncrement < dateTime.unixtime() ) {
+    oldUnixtime = dateTime.unixtime(); // update oldUnixtime
   
     // Calculate current tide height
-    height = myTideCalc.currentTide(now);
+    height = myTideCalc.currentTide(dateTime);
     Serial.println();
-    Serial.print("height=");
+    Serial.print("Tide height=");
     Serial.println(height, 3);
+    Serial.println();
+
+    sunTimes.time(dateTime.year(), dateTime.month(), dateTime.day(), dateTime.hour(), dateTime.minute(), dateTime.second()); //insert year, month, day, hour, minutes and seconds
+    sunTimes.calculations();                                     //update calculations for last inserted time
+    float el_rad = sunTimes.elevation_rad();                      //store sun's elevation in rads
+    float el_deg = sunTimes.elevation_deg();                      //store sun's elevation in degrees
+    float az_rad = sunTimes.azimuth_rad();                        //store sun's azimuth in rads
+    float az_deg = sunTimes.azimuth_deg();                        //store sun's azimuth in degrees
+    float sunrise = sunTimes.sunrise_time();                      //store sunrise time in decimal form
+    float sunset = sunTimes.sunset_time();                        //store sunset time in decimal form
+    Serial.println("Sun rise/set times:");
+    Serial.print("elevation in degrees=");
+    Serial.println(el_deg);
+    Serial.print("azimouth in degrees=");
+    Serial.println(az_deg);
+    Serial.print("time of sunrise in decimal form=");
+    Serial.println(sunrise);
+    Serial.print("time of sunset in decimal form=");
+    Serial.println(sunset);
+    Serial.println();
+
+    float frac = MoonPhase(dateTime.year(), dateTime.month(), dateTime.day());
+    Serial.print("Moon phase=");
+    Serial.println(frac);
+    Serial.println();
+
+    riseset(lat, lon, false);
+//    setTime(dateTime.unixtime());
+//    moon_init(lat, lon); // pass it lat / lon - it uses ints for the calculation...
+//    Serial.println("Moon rise/set times:");
+//    Serial.print("now=");
+//    Serial.print(now());
+//    Serial.print(" day=");
+//    Serial.println(day());
+//    Serial.print("rise azimouth in degrees=");
+//    Serial.println(Moon.riseAZ);
+//    Serial.print("set azimouth in degrees=");
+//    Serial.println(Moon.setAZ);
+    Serial.print("time of moonrise=");
+    Serial.print(Moon.riseH);
+    Serial.print(":");
+    Serial.println(Moon.riseM);
+    Serial.print("time of moonset=");
+    Serial.print(Moon.setH);
+    Serial.print(":");
+    Serial.println(Moon.setM);
+    Serial.println();
   }
   int heightPosition = heightMaxServoReach - (height / maxTideHeight * (servoCentre * 2));
   if (heightPosition < heightMinServoReach) heightPosition = heightMinServoReach;
   if (heightPosition > heightMaxServoReach) heightPosition = heightMaxServoReach;
   heightServo.write(heightPosition);
-  Serial.print("heightPosition=");
-  Serial.println(heightPosition);
+  //Serial.print("heightPosition=");
+  //Serial.println(heightPosition);
   
   if (secondsUntilNext <= 0) {
-    wakeUp();
+    wakeUp(); // Turn on the screen
     Serial.println();
-    unsigned long highTide = localMax(now.unixtime(), now.unixtime() + halfClockInSeconds * 1.5);
-    if (highTide == now.unixtime())
+    unsigned long highTide = localMax(dateTime.unixtime(), dateTime.unixtime() + halfClockInSeconds * 1.5);
+    if (highTide == dateTime.unixtime())
       highTide = invalidTime;
     Serial.println();
-    unsigned long lowTide  = localMin(now.unixtime(), now.unixtime() + halfClockInSeconds * 1.5);
-    if (lowTide == now.unixtime())
+    unsigned long lowTide  = localMin(dateTime.unixtime(), dateTime.unixtime() + halfClockInSeconds * 1.5);
+    if (lowTide == dateTime.unixtime())
       lowTide = invalidTime;
     Serial.println();
     Serial.print("highTide=");
     Serial.print(highTide);
     Serial.print(" (");
-    Serial.print(highTide-now.unixtime());
+    Serial.print(highTide-dateTime.unixtime());
     Serial.print(") lowTide=");
     Serial.print(lowTide);
     Serial.print(" (");
-    Serial.print(lowTide-now.unixtime());
+    Serial.print(lowTide-dateTime.unixtime());
     Serial.print(")");
     if (highTide < lowTide) {
       goingHighTide = true;
@@ -168,7 +225,7 @@ void loop() {
     }
     Serial.println();
   }
-  secondsUntilNext = future - now.unixtime();
+  secondsUntilNext = future - dateTime.unixtime();
 
   float percentage = (1.0 * secondsUntilNext / halfClockInSeconds);
   float position; // = percentage * servoCentre;
@@ -181,47 +238,47 @@ void loop() {
   position = servoCentre + position/8;
   timeServo.write(position);
 
-  char buf[20]; // declare a string buffer to hold the time result
-  // Create a string representation of the date and time,
-  // which will be put into 'buf'.
-  now.toString(buf, 20);
-  // Now extract the time by making another character pointer that
-  // is advanced 11 places into buf to skip over the date.
-  char *timeStr = buf + 11;
-  oled.home();
-  oled.set2X();  // Enable large font
-  oled.print(" ");
-  //oled.println(siteName); // Print site name, move to next line
-  oled.println(timeStr); // print hour:min:sec
-  oled.set1X(); // Enable normal font
-  oled.print(siteName); // Print site name, move to next line
-  oled.println(" tide:");
-  oled.print("  ");
-  oled.print(height, 3); // print tide ht. to 3 decimal places
-  oled.println("m");
-  oled.println();
-  oled.print("Time until ");
-  if (goingHighTide) {
-    oled.print("high");
-  } else {
-    oled.print("low");
-  }
-  oled.println(": "); // Extra space because "low" is a character less than "high"
-  oled.set2X(); // Enable large font
-  //oled.println(subbuf); // print hour:min:sec
-  //secondsUntilNext = 15 * 3600l + 54 * 60l + 36;
-  short hour = secondsUntilNext / 3600;
-  short minute = (secondsUntilNext % 3600) / 60;
-  short second = ((secondsUntilNext % 3600) % 60);
-  oled.print(" ");
-  if (hour < 10) oled.print("0");
-  oled.print(hour); // hours until next tide
-  oled.print(":");
-  if (minute < 10) oled.print("0");
-  oled.print(minute); // mins until next tide
-  oled.print(":");
-  if (second < 10) oled.print("0");
-  oled.print(second); // secs until next tide
+//  char buf[20]; // declare a string buffer to hold the time result
+//  // Create a string representation of the date and time,
+//  // which will be put into 'buf'.
+//  dateTime.toString(buf, 20);
+//  // Now extract the time by making another character pointer that
+//  // is advanced 11 places into buf to skip over the date.
+//  char *timeStr = buf + 11;
+//  oled.home();
+//  oled.set2X();  // Enable large font
+//  oled.print(" ");
+//  //oled.println(siteName); // Print site name, move to next line
+//  oled.println(timeStr); // print hour:min:sec
+//  oled.set1X(); // Enable normal font
+//  oled.print(siteName); // Print site name, move to next line
+//  oled.println(" tide:");
+//  oled.print("  ");
+//  oled.print(height, 3); // print tide ht. to 3 decimal places
+//  oled.println("m");
+//  oled.println();
+//  oled.print("Time until ");
+//  if (goingHighTide) {
+//    oled.print("high");
+//  } else {
+//    oled.print("low");
+//  }
+//  oled.println(": "); // Extra space because "low" is a character less than "high"
+//  oled.set2X(); // Enable large font
+//  //oled.println(subbuf); // print hour:min:sec
+//  //secondsUntilNext = 15 * 3600l + 54 * 60l + 36;
+//  short hour = secondsUntilNext / 3600;
+//  short minute = (secondsUntilNext % 3600) / 60;
+//  short second = ((secondsUntilNext % 3600) % 60);
+//  oled.print(" ");
+//  if (hour < 10) oled.print("0");
+//  oled.print(hour); // hours until next tide
+//  oled.print(":");
+//  if (minute < 10) oled.print("0");
+//  oled.print(minute); // mins until next tide
+//  oled.print(":");
+//  if (second < 10) oled.print("0");
+//  oled.print(second); // secs until next tide
 
   int delayTime = screenUpdateMs - powerDownMs - (millis() - startTime);
   if (delayTime < 0) delayTime = screenUpdateMs / 2;
@@ -234,7 +291,7 @@ void loop() {
     screenOnCountdownMs -= screenUpdateMs;
 
     // Turn on the OLED screen
-    oled.ssd1306WriteCmd(SSD1306_DISPLAYON);
+    //oled.ssd1306WriteCmd(SSD1306_DISPLAYON);
 
     delay(delayTime);
     digitalWrite(ledPin, LOW);
@@ -247,7 +304,7 @@ void loop() {
     digitalWrite(ledPin, LOW);
 
     // Turn off the OLED screen
-    oled.ssd1306WriteCmd(SSD1306_DISPLAYOFF);
+    //oled.ssd1306WriteCmd(SSD1306_DISPLAYOFF);
 
     // Allow wake up pin to trigger interrupt on low.
     //attachInterrupt(0, wakeUp, HIGH);
@@ -356,6 +413,49 @@ unsigned long localMaxUtil(unsigned long low, unsigned long high, unsigned long 
 unsigned long localMax(unsigned long beginning, unsigned long end)
 {
     return localMaxUtil(beginning, end, end);
+}
+
+// Moon phase, takes three parameters: the year (4 digits), the month and the day.
+// The function returns fraction full, float 0-1 (e.g. 0 for new, .25 for crescent, .5 for quarter, .75 for gibbous and 1 for full).
+// Also calculates phase and age in days. THIS VERSION uses a cosine function to model the illumination fraction.
+// Calculated at noon, based on new moon Jan 6, 2000 @18:00, illumination accurate to about 5%, at least for years 1900-2100.
+// Modified from post at http://www.nano-reef.com/topic/217305-a-lunar-phase-function-for-the-arduino/
+// S. J. Remington 11/2016
+float MoonPhase(int nYear, int nMonth, int nDay) // calculate the current phase of the moon
+{
+  float age, phase, frac, days_since;
+  long YY, MM, K1, K2, K3, JD;
+  YY = nYear - floor((12 - nMonth) / 10);
+  MM = nMonth + 9;
+  if (MM >= 12)
+  {
+    MM = MM - 12;
+  }
+  K1 = floor(365.25 * (YY + 4712));
+  K2 = floor(30.6 * MM + 0.5);
+  K3 = floor(floor((YY / 100) + 49) * 0.75) - 38;
+  JD = K1 + K2 + nDay + 59;  //Julian day
+  if (JD > 2299160) //1582, Gregorian calendar
+  {
+    JD = JD - K3;
+  }
+
+  // Serial.print(" JD ");  //Julian Day, checked OK
+  // Serial.print(JD);
+  // Serial.print(" ");
+
+  days_since = JD - 2451550L; //since noon on Jan. 6, 2000 (new moon @18:00)
+  phase = (days_since - 0.25) / 29.53059; //0.25 = correct for 6 pm that day
+  phase -= floor(phase);  //phase in cycle
+  age = phase * 29.53059;
+
+  // calculate fraction full
+  frac = (1.0 - cos(phase * 2 * PI)) * 0.5;
+
+  // Serial.print("Moon Age ");
+  // Serial.print(age);
+
+  return frac; //phase or age or frac, as desired
 }
 
 // Just a handler for the pin interrupt.
