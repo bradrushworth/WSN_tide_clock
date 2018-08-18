@@ -175,7 +175,7 @@ void loop() {
     float sunset = sunTimes.sunset_time();                        //store sunset time in decimal form
 
     // 90 degrees is sunrise/sunset. 180 is high noon. 0 is night.
-    float el_servo = servoCentre + el_deg;
+    int el_servo = servoCentre + el_deg;
     if (el_servo < heightMinServoReach) el_servo = heightMinServoReach;
     if (el_servo > heightMaxServoReach) el_servo = heightMaxServoReach;
     sunElevationServo.write(el_servo);
@@ -199,7 +199,7 @@ void loop() {
     float frac = MoonPhase(dateTime.year(), dateTime.month(), dateTime.day());
 
     // Go from 0 to 180 for New Moon (0) to Full Moon (90) to New Moon (180)
-    float servoFrac = (1 - frac) * (servoCentre * 2);
+    int servoFrac = (1 - frac) * (servoCentre * 2);
     if (servoFrac < heightMinServoReach) servoFrac = heightMinServoReach;
     if (servoFrac > heightMaxServoReach) servoFrac = heightMaxServoReach;
     moonPhaseServo.write(servoFrac);
