@@ -9,12 +9,12 @@
 #define ENABLE_OLED true
 #define ENABLE_SUN_RISE true
 #define ENABLE_MOON_PHASE true
-#define ENABLE_MOON_RISE false
+#define ENABLE_MOON_RISE true
 
 // 0X3C+SA0 - 0x3C or 0x3D for oled screen on I2C bus
 #define OLED_I2C_ADDRESS 0x3C
 
-const boolean info = true;
+const boolean info = false;
 const boolean debug = false;
 
 #if ENABLE_OLED
@@ -55,38 +55,40 @@ TideCalc myTideCalc; // Create TideCalc object
 SSD1306AsciiWire oled; // create oled display object
 #endif
 
-const unsigned int wakeUpPin = 2;
-const unsigned int ledPin = 13;
-const unsigned int timeServoPin = 11;
-const unsigned int heightServoPin = 9;
-const unsigned int sunElevationServoPin = 5;
-const unsigned int moonPhaseServoPin = 6;
+const byte wakeUpPin = 2;
+const byte ledPin = 13;
+const byte timeServoPin = 11;
+const byte heightServoPin = 9;
+const byte sunElevationServoPin = 5;
+const byte moonPhaseServoPin = 6;
 
-// Enter the site name for display. 11 characters max
-const char siteName[20] = "Batemans Bay";
+// Enter the site name for display. Length of array to match
+const char siteName[] = "Batemans Bay";
 const int lat = -35;
 const int lon = 150;
 const float timezone = 10;
 
 unsigned long oldUnixtime; // keep track of update time
-const unsigned long screenUpdateMs = 1000; // how often to update the screen (milliseconds)
-const unsigned long powerDownMs = 500; // how long the CPU is powered down (milliseconds)
 DateTime dateTime; // define variable to hold date and time
+const unsigned long invalidTime = 2000000000l; // fake time when value isn't valid
 float height; // tide height
 unsigned long future; // future tide time
 long secondsUntilNext; // seconds until next tide
 boolean goingHighTide; // yes or no
 const float maxTideHeight = 2.0; // metres
-const unsigned long halfClockInSeconds = 6 * 3600 + 12 * 60 + 30; // how long is a tide cycle on the clock face
-const unsigned int servoCentre = 90;
-const unsigned int timeMinServoReach = 0;
-const unsigned int timeMaxServoReach = 190; // some servos can't fully go to 180
-const unsigned int heightMinServoReach = 0;
-const unsigned int heightMaxServoReach = 173; // some servos can't fully go to 180
+const unsigned int halfClockInSeconds = 6 * 3600 + 12 * 60 + 30; // how long is a tide cycle on the clock face (6 hrs 12 mins 30 secs)
+const byte servoCentre = 90;
+const byte timeMinServoReach = 0;
+const byte timeMaxServoReach = 190; // this is a multi-rotation servo which isn't quite accurate
+const byte heightMinServoReach = 0;
+const byte heightMaxServoReach = 173; // some servos can't fully go to 180
 const unsigned int searchIncrement = halfClockInSeconds / timeMaxServoReach; // time accuracy (seconds) per degree of servo movement
-const unsigned long invalidTime = 2000000000l; // fake time when value isn't valid
-const unsigned int screenOnTimeMs = 10 * screenUpdateMs;
-unsigned int screenOnCountdownMs = screenOnTimeMs;
+
+const unsigned int powerDownMs = 500 + 250 + 60; // how long the CPU is powered down (810 milliseconds)
+const byte screenUpdateSec = 1; // how often to update the screen (seconds)
+const byte screenOnTimeSec = 10 * screenUpdateSec;
+volatile byte screenOnCountdownSec = screenOnTimeSec; // volatile because written by interupt wakeup. Bytes are best because 8-bit system.
+volatile boolean hasBeenInterupted = false;
 
 #if ENABLE_SUN_RISE
 sundata sunTimes = sundata(lat, lon, timezone);
@@ -109,7 +111,7 @@ void setup() {
   //RTC.adjust(DateTime(__DATE__, __TIME__));         // Time and date is expanded to date and time on your computer at compiletime
   //RTC.adjust(DateTime("Aug 06 2018", "20:30:00"));  // Current time
 
-  if (info) {
+  if (info || debug) {
     // For debugging output to serial monitor
     Serial.begin(115200); // Set baud rate to 115200 in serial monitor
     Serial.print("COMPILED AT: date=");
@@ -123,7 +125,7 @@ void setup() {
   sunElevationServo.attach(sunElevationServoPin);
   moonPhaseServo.attach(moonPhaseServoPin);
   pinMode(ledPin, OUTPUT);
-  pinMode(wakeUpPin, INPUT);
+  pinMode(wakeUpPin, INPUT_PULLUP);
 
 #if ENABLE_OLED
   // Start up the oled display
@@ -252,7 +254,8 @@ void loop() {
     oled.clear();
 #endif
 
-    wakeUp(); // Turn on the screen and move servos
+    // Turn on the screen and move servos
+    wakeUp();
 
     if (info) Serial.println();
     unsigned long highTide = localMax(dateTime.unixtime(), dateTime.unixtime() + halfClockInSeconds * 1.5);
@@ -342,35 +345,43 @@ void loop() {
   oled.print(second); // secs until next tide
 #endif
 
-  int delayTime = screenUpdateMs - powerDownMs - (millis() - startTime);
-  if (delayTime < 0) delayTime = screenUpdateMs / 2;
+  int delayTimeMs = screenUpdateSec * 1000 - powerDownMs - (millis() - startTime);
+  if (delayTimeMs < 0) delayTimeMs = 0;
   if (debug) {
-    Serial.print("delay: delayTime=");
-    Serial.println(delayTime);
+    Serial.print("delay: delayTimeMs=");
+    Serial.println(delayTimeMs, DEC);
+    Serial.print("delay: screenOnCountdownSec=");
+    Serial.println(screenOnCountdownSec, DEC);
+    Serial.print("delay: screenUpdateSec=");
+    Serial.println(screenUpdateSec, DEC);
   }
-
-  if (screenOnCountdownMs > 0) {
-    screenOnCountdownMs -= screenUpdateMs;
+  if (screenOnCountdownSec > 0) {
+    // screenUpdateSec is a multiple of screenOnTimeSec, so will reduce neatly to zero
+    screenOnCountdownSec -= screenUpdateSec;
 
 #if ENABLE_OLED
     // Turn on the OLED screen
     oled.ssd1306WriteCmd(SSD1306_DISPLAYON);
 #endif
 
-    delay(delayTime);
+    delay(delayTimeMs);
     digitalWrite(ledPin, LOW);
+    hasBeenInterupted = false;
 
     // Allow wake up pin to trigger interrupt on low.
-    attachInterrupt(0, wakeUp, HIGH);
+    attachInterrupt(digitalPinToInterrupt(wakeUpPin), wakeUp, RISING);
     
-    // Enter idle state for 500ms with the rest of peripherals turned off, except the servo.
-    LowPower.powerSave(SLEEP_500MS, ADC_OFF, BOD_OFF, TIMER2_ON);
+    // Enter idle state for 810ms (powerDownMs) with the rest of peripherals turned off, except the servo.
+    if (!hasBeenInterupted) LowPower.powerSave(SLEEP_60MS, ADC_OFF, BOD_OFF, TIMER2_ON);
+    if (!hasBeenInterupted) LowPower.powerSave(SLEEP_250MS, ADC_OFF, BOD_OFF, TIMER2_ON);
+    if (!hasBeenInterupted) LowPower.powerSave(SLEEP_500MS, ADC_OFF, BOD_OFF, TIMER2_ON);
 
     // Disable external pin interrupt on wake up pin.
-    detachInterrupt(0);
+    detachInterrupt(digitalPinToInterrupt(wakeUpPin));
   } else {
-    delay(delayTime);
+    delay(delayTimeMs);
     digitalWrite(ledPin, LOW);
+    hasBeenInterupted = false;
 
 #if ENABLE_OLED
     // Turn off the OLED screen
@@ -378,20 +389,15 @@ void loop() {
 #endif
 
     // Allow wake up pin to trigger interrupt on low.
-    attachInterrupt(0, wakeUp, HIGH);
+    attachInterrupt(digitalPinToInterrupt(wakeUpPin), wakeUp, RISING);
 
-    // Power down for 60s with ADC module and BOD module off. This disables the servo movement.
-    LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
-    LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
-    LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
-    LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
-    LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
-    LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
-    LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
-    LowPower.powerDown(SLEEP_4S, ADC_OFF, BOD_OFF);
+    // Power down for 10mins with ADC module and BOD module off. This disables the servo movement.
+    for (unsigned int i=0; i<10*60; i+=8) { // i in seconds
+      if (!hasBeenInterupted) LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
+    }
 
     // Disable external pin interrupt on wake up pin.
-    detachInterrupt(0);
+    detachInterrupt(digitalPinToInterrupt(wakeUpPin));
 
     // Create an empty line
     if (debug) Serial.println();
@@ -541,5 +547,6 @@ float MoonPhase(int nYear, int nMonth, int nDay) // calculate the current phase 
 // Just a handler for the pin interrupt.
 void wakeUp()
 {
-  screenOnCountdownMs = screenOnTimeMs;
+  hasBeenInterupted = true;
+  screenOnCountdownSec = screenOnTimeSec;
 }
