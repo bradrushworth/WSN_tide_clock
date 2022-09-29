@@ -19,15 +19,15 @@ const boolean debug = false;
 
 #if ENABLE_OLED
 //#include <Wire.h>
-#include "SSD1306Ascii.h" // https://github.com/greiman/SSD1306Ascii
-#include "SSD1306AsciiWire.h" // https://github.com/greiman/SSD1306Ascii
+#include "SSD1306Ascii.h"      // https://github.com/greiman/SSD1306Ascii
+#include "SSD1306AsciiWire.h"  // https://github.com/greiman/SSD1306Ascii
 #endif
 
-#include <SPI.h> // Required for RTClib to compile properly
-#include <RTClib.h> // Originally from https://github.com/millerlp/RTClib, now using https://github.com/NeiroNx/RTCLib
+#include <SPI.h>     // Required for RTClib to compile properly
+#include <RTClib.h>  // Originally from https://github.com/millerlp/RTClib, now using https://github.com/NeiroNx/RTCLib
 
 // Real Time Clock setup
-DS3231 RTC; // Uncomment when using this chip
+DS3231 RTC;  // Uncomment when using this chip
 
 #include <Servo.h>
 #include "LowPower.h"
@@ -49,10 +49,10 @@ Servo timeServo, heightServo, sunElevationServo, moonPhaseServo;  // create serv
 //#include "TidelibSanDiegoSanDiegoBay.h"
 #include "TidelibBatemansBayAustralia.h"
 // Other sites available at http://github.com/millerlp/Tide_calculator
-TideCalc myTideCalc; // Create TideCalc object
+TideCalc myTideCalc;  // Create TideCalc object
 
 #if ENABLE_OLED
-SSD1306AsciiWire oled; // create oled display object
+SSD1306AsciiWire oled;  // create oled display object
 #endif
 
 const byte wakeUpPin = 2;
@@ -68,26 +68,26 @@ const int lat = -35;
 const int lon = 150;
 const float timezone = 10;
 
-unsigned long oldUnixtime; // keep track of update time
-DateTime dateTime; // define variable to hold date and time
-const unsigned long invalidTime = 2000000000l; // fake time when value isn't valid
-float height; // tide height
-unsigned long future; // future tide time
-long secondsUntilNext; // seconds until next tide
-boolean goingHighTide; // yes or no
-const float maxTideHeight = 2.0; // metres
-const unsigned int halfClockInSeconds = 6 * 3600 + 12 * 60 + 30; // how long is a tide cycle on the clock face (6 hrs 12 mins 30 secs)
+unsigned long oldUnixtime;                                        // keep track of update time
+DateTime dateTime;                                                // define variable to hold date and time
+const unsigned long invalidTime = 2000000000l;                    // fake time when value isn't valid
+float height;                                                     // tide height
+unsigned long future;                                             // future tide time
+long secondsUntilNext;                                            // seconds until next tide
+boolean goingHighTide;                                            // yes or no
+const float maxTideHeight = 2.0;                                  // metres
+const unsigned int halfClockInSeconds = 6 * 3600 + 12 * 60 + 30;  // how long is a tide cycle on the clock face (6 hrs 12 mins 30 secs)
 const byte servoCentre = 90;
 const byte timeMinServoReach = 0;
-const byte timeMaxServoReach = 190; // this is a multi-rotation servo which isn't quite accurate
+const byte timeMaxServoReach = 190;  // this is a multi-rotation servo which isn't quite accurate
 const byte heightMinServoReach = 0;
-const byte heightMaxServoReach = 173; // some servos can't fully go to 180
-const unsigned int searchIncrement = halfClockInSeconds / timeMaxServoReach; // time accuracy (seconds) per degree of servo movement
+const byte heightMaxServoReach = 173;                                         // some servos can't fully go to 180
+const unsigned int searchIncrement = halfClockInSeconds / timeMaxServoReach;  // time accuracy (seconds) per degree of servo movement
 
-const unsigned int powerDownMs = 500 + 250 + 60; // how long the CPU is powered down (810 milliseconds)
-const byte screenUpdateSec = 1; // how often to update the screen (seconds)
+const unsigned int powerDownMs = 500 + 250 + 60;  // how long the CPU is powered down (810 milliseconds)
+const byte screenUpdateSec = 1;                   // how often to update the screen (seconds)
 const byte screenOnTimeSec = 10 * screenUpdateSec;
-volatile byte screenOnCountdownSec = screenOnTimeSec; // volatile because written by interupt wakeup. Bytes are best because 8-bit system.
+volatile byte screenOnCountdownSec = screenOnTimeSec;  // volatile because written by interupt wakeup. Bytes are best because 8-bit system.
 volatile boolean hasBeenInterupted = false;
 
 #if ENABLE_SUN_RISE
@@ -113,14 +113,14 @@ void setup() {
 
   if (info || debug) {
     // For debugging output to serial monitor
-    Serial.begin(115200); // Set baud rate to 115200 in serial monitor
+    Serial.begin(115200);  // Set baud rate to 115200 in serial monitor
     Serial.print("COMPILED AT: date=");
     Serial.print(__DATE__);
     Serial.print(" time=");
     Serial.println(__TIME__);
   }
 
-  timeServo.attach(timeServoPin); // attaches the servo on pin 11 (Timer 2 which is usable in low-power state)
+  timeServo.attach(timeServoPin);  // attaches the servo on pin 11 (Timer 2 which is usable in low-power state)
   heightServo.attach(heightServoPin);
   sunElevationServo.attach(sunElevationServoPin);
   moonPhaseServo.attach(moonPhaseServoPin);
@@ -154,8 +154,8 @@ void loop() {
     Serial.print(" dateTime.unixtime()=");
     Serial.println(dateTime.unixtime());
   }
-  if ( oldUnixtime == 0 || oldUnixtime + searchIncrement < dateTime.unixtime() ) {
-    oldUnixtime = dateTime.unixtime(); // update oldUnixtime
+  if (oldUnixtime == 0 || oldUnixtime + searchIncrement < dateTime.unixtime()) {
+    oldUnixtime = dateTime.unixtime();  // update oldUnixtime
 
     // Calculate current tide height
     height = myTideCalc.currentTide(dateTime);
@@ -167,14 +167,14 @@ void loop() {
     }
 
 #if ENABLE_SUN_RISE
-    sunTimes.time(dateTime.year(), dateTime.month(), dateTime.day(), dateTime.hour(), dateTime.minute(), dateTime.second()); //insert year, month, day, hour, minutes and seconds
-    sunTimes.calculations();                                     //update calculations for last inserted time
-    float el_rad = sunTimes.elevation_rad();                      //store sun's elevation in rads
-    float el_deg = sunTimes.elevation_deg();                      //store sun's elevation in degrees
-    float az_rad = sunTimes.azimuth_rad();                        //store sun's azimuth in rads
-    float az_deg = sunTimes.azimuth_deg();                        //store sun's azimuth in degrees
-    float sunrise = sunTimes.sunrise_time();                      //store sunrise time in decimal form
-    float sunset = sunTimes.sunset_time();                        //store sunset time in decimal form
+    sunTimes.time(dateTime.year(), dateTime.month(), dateTime.day(), dateTime.hour(), dateTime.minute(), dateTime.second());  //insert year, month, day, hour, minutes and seconds
+    sunTimes.calculations();                                                                                                  //update calculations for last inserted time
+    float el_rad = sunTimes.elevation_rad();                                                                                  //store sun's elevation in rads
+    float el_deg = sunTimes.elevation_deg();                                                                                  //store sun's elevation in degrees
+    float az_rad = sunTimes.azimuth_rad();                                                                                    //store sun's azimuth in rads
+    float az_deg = sunTimes.azimuth_deg();                                                                                    //store sun's azimuth in degrees
+    float sunrise = sunTimes.sunrise_time();                                                                                  //store sunrise time in decimal form
+    float sunset = sunTimes.sunset_time();                                                                                    //store sunset time in decimal form
 
     // 90 degrees is sunrise/sunset. 180 is high noon. 0 is night.
     int el_servo = servoCentre + el_deg;
@@ -205,7 +205,7 @@ void loop() {
     if (servoFrac < heightMinServoReach) servoFrac = heightMinServoReach;
     if (servoFrac > heightMaxServoReach) servoFrac = heightMaxServoReach;
     moonPhaseServo.write(servoFrac);
-    
+
     if (info) {
       Serial.print("MoonPhase: Moon Phase=");
       Serial.println(frac);
@@ -219,7 +219,7 @@ void loop() {
     riseset(lat, lon, false);
     //    setTime(dateTime.unixtime());
     //    moon_init(lat, lon); // pass it lat / lon - it uses ints for the calculation...
-    
+
     if (info) {
       //    Serial.println("Moon rise/set times:");
       //    Serial.print("now=");
@@ -262,7 +262,7 @@ void loop() {
     if (highTide == dateTime.unixtime())
       highTide = invalidTime;
     if (info) Serial.println();
-    unsigned long lowTide  = localMin(dateTime.unixtime(), dateTime.unixtime() + halfClockInSeconds * 1.5);
+    unsigned long lowTide = localMin(dateTime.unixtime(), dateTime.unixtime() + halfClockInSeconds * 1.5);
     if (lowTide == dateTime.unixtime())
       lowTide = invalidTime;
     if (info) {
@@ -291,18 +291,18 @@ void loop() {
   secondsUntilNext = future - dateTime.unixtime();
 
   float percentage = (1.0 * secondsUntilNext / halfClockInSeconds);
-  float position; // = percentage * servoCentre;
+  float position;  // = percentage * servoCentre;
   if (goingHighTide) {
-    position = timeMinServoReach + (percentage * servoCentre); // 0 to 90 degrees
+    position = timeMinServoReach + (percentage * servoCentre);  // 0 to 90 degrees
   } else {
-    position = servoCentre + (percentage * timeMaxServoReach / 2.0); // 90 to 180 degrees
+    position = servoCentre + (percentage * timeMaxServoReach / 2.0);  // 90 to 180 degrees
   }
   position = max(timeMinServoReach, min(timeMaxServoReach, position));
   position = servoCentre + position / 8;
   timeServo.write(position);
 
 #if ENABLE_OLED
-  char buf[20]; // declare a string buffer to hold the time result
+  char buf[20];  // declare a string buffer to hold the time result
   // Create a string representation of the date and time,
   // which will be put into 'buf'.
   dateTime.tostr(buf);
@@ -313,12 +313,12 @@ void loop() {
   oled.set2X();  // Enable large font
   oled.print(" ");
   //oled.println(siteName); // Print site name, move to next line
-  oled.println(timeStr); // print hour:min:sec
-  oled.set1X(); // Enable normal font
-  oled.print(siteName); // Print site name, move to next line
+  oled.println(timeStr);  // print hour:min:sec
+  oled.set1X();           // Enable normal font
+  oled.print(siteName);   // Print site name, move to next line
   oled.println(" tide:");
   oled.print("  ");
-  oled.print(height, 3); // print tide ht. to 3 decimal places
+  oled.print(height, 3);  // print tide ht. to 3 decimal places
   oled.println("m");
   oled.println();
   oled.print("Time until ");
@@ -327,8 +327,8 @@ void loop() {
   } else {
     oled.print("low");
   }
-  oled.println(": "); // Extra space because "low" is a character less than "high"
-  oled.set2X(); // Enable large font
+  oled.println(": ");  // Extra space because "low" is a character less than "high"
+  oled.set2X();        // Enable large font
   //oled.println(subbuf); // print hour:min:sec
   //secondsUntilNext = 15 * 3600l + 54 * 60l + 36;
   short hour = secondsUntilNext / 3600;
@@ -336,13 +336,13 @@ void loop() {
   short second = ((secondsUntilNext % 3600) % 60);
   oled.print(" ");
   if (hour < 10) oled.print("0");
-  oled.print(hour); // hours until next tide
+  oled.print(hour);  // hours until next tide
   oled.print(":");
   if (minute < 10) oled.print("0");
-  oled.print(minute); // mins until next tide
+  oled.print(minute);  // mins until next tide
   oled.print(":");
   if (second < 10) oled.print("0");
-  oled.print(second); // secs until next tide
+  oled.print(second);  // secs until next tide
 #endif
 
   int delayTimeMs = screenUpdateSec * 1000 - powerDownMs - (millis() - startTime);
@@ -370,7 +370,7 @@ void loop() {
 
     // Allow wake up pin to trigger interrupt on low.
     attachInterrupt(digitalPinToInterrupt(wakeUpPin), wakeUp, RISING);
-    
+
     // Enter idle state for 810ms (powerDownMs) with the rest of peripherals turned off, except the servo.
     if (!hasBeenInterupted) LowPower.powerSave(SLEEP_60MS, ADC_OFF, BOD_OFF, TIMER2_ON);
     if (!hasBeenInterupted) LowPower.powerSave(SLEEP_250MS, ADC_OFF, BOD_OFF, TIMER2_ON);
@@ -392,7 +392,7 @@ void loop() {
     attachInterrupt(digitalPinToInterrupt(wakeUpPin), wakeUp, RISING);
 
     // Power down for 10mins with ADC module and BOD module off. This disables the servo movement.
-    for (unsigned int i=0; i<10*60; i+=8) { // i in seconds
+    for (unsigned int i = 0; i < 10 * 60; i += 8) {  // i in seconds
       if (!hasBeenInterupted) LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
     }
 
@@ -406,8 +406,7 @@ void loop() {
 
 // A binary search based function that returns
 // index of a local minima.
-unsigned long localMinUtil(unsigned long low, unsigned long high, unsigned long n)
-{
+unsigned long localMinUtil(unsigned long low, unsigned long high, unsigned long n) {
   // Find index of middle element
   unsigned long mid = low + (high - low) / 2; /* (low + high)/2 */
   if (info) {
@@ -424,12 +423,11 @@ unsigned long localMinUtil(unsigned long low, unsigned long high, unsigned long 
 
   // If the mid is the same as the low and high, quit
   if (high - low < searchIncrement)
-    return low; //invalidTime;
+    return low;  //invalidTime;
 
   // Compare middle element with its neighbours
   // (if neighbours exist)
-  if ((myTideCalc.currentTide(mid - searchIncrement) > myTideCalc.currentTide(mid)) &&
-      (myTideCalc.currentTide(mid + searchIncrement) > myTideCalc.currentTide(mid)))
+  if ((myTideCalc.currentTide(mid - searchIncrement) > myTideCalc.currentTide(mid)) && (myTideCalc.currentTide(mid + searchIncrement) > myTideCalc.currentTide(mid)))
     return mid;
 
   // If middle element is not minima and its left
@@ -445,15 +443,13 @@ unsigned long localMinUtil(unsigned long low, unsigned long high, unsigned long 
 }
 
 // A wrapper over recursive function localMinUtil()
-unsigned long localMin(unsigned long beginning, unsigned long end)
-{
+unsigned long localMin(unsigned long beginning, unsigned long end) {
   return localMinUtil(beginning, end, end);
 }
 
 // A binary search based function that returns
 // index of a local maxima.
-unsigned long localMaxUtil(unsigned long low, unsigned long high, unsigned long n)
-{
+unsigned long localMaxUtil(unsigned long low, unsigned long high, unsigned long n) {
   // Find index of middle element
   unsigned long mid = low + (high - low) / 2; /* (low + high)/2 */
   if (info) {
@@ -470,12 +466,11 @@ unsigned long localMaxUtil(unsigned long low, unsigned long high, unsigned long 
 
   // If the mid is the same as the low and high, quit
   if (high - low < searchIncrement)
-    return low; //invalidTime;
+    return low;  //invalidTime;
 
   // Compare middle element with its neighbours
   // (if neighbours exist)
-  if ((myTideCalc.currentTide(mid - searchIncrement) < myTideCalc.currentTide(mid)) &&
-      (myTideCalc.currentTide(mid + searchIncrement) < myTideCalc.currentTide(mid)))
+  if ((myTideCalc.currentTide(mid - searchIncrement) < myTideCalc.currentTide(mid)) && (myTideCalc.currentTide(mid + searchIncrement) < myTideCalc.currentTide(mid)))
     return mid;
 
   // If middle element is not minima and its left
@@ -491,8 +486,7 @@ unsigned long localMaxUtil(unsigned long low, unsigned long high, unsigned long 
 }
 
 // A wrapper over recursive function localMaxUtil()
-unsigned long localMax(unsigned long beginning, unsigned long end)
-{
+unsigned long localMax(unsigned long beginning, unsigned long end) {
   return localMaxUtil(beginning, end, end);
 }
 
@@ -503,21 +497,20 @@ unsigned long localMax(unsigned long beginning, unsigned long end)
 // Calculated at noon, based on new moon Jan 6, 2000 @18:00, illumination accurate to about 5%, at least for years 1900-2100.
 // Modified from post at http://www.nano-reef.com/topic/217305-a-lunar-phase-function-for-the-arduino/
 // S. J. Remington 11/2016
-float MoonPhase(int nYear, int nMonth, int nDay) // calculate the current phase of the moon
+float MoonPhase(int nYear, int nMonth, int nDay)  // calculate the current phase of the moon
 {
   float age, phase, frac, days_since;
   long YY, MM, K1, K2, K3, JD;
   YY = nYear - floor((12 - nMonth) / 10);
   MM = nMonth + 9;
-  if (MM >= 12)
-  {
+  if (MM >= 12) {
     MM = MM - 12;
   }
   K1 = floor(365.25 * (YY + 4712));
   K2 = floor(30.6 * MM + 0.5);
   K3 = floor(floor((YY / 100) + 49) * 0.75) - 38;
   JD = K1 + K2 + nDay + 59;  //Julian day
-  if (JD > 2299160) //1582, Gregorian calendar
+  if (JD > 2299160)          //1582, Gregorian calendar
   {
     JD = JD - K3;
   }
@@ -527,9 +520,9 @@ float MoonPhase(int nYear, int nMonth, int nDay) // calculate the current phase 
     Serial.println(JD);
   }
 
-  days_since = JD - 2451550L; //since noon on Jan. 6, 2000 (new moon @18:00)
-  phase = (days_since - 0.25) / 29.53059; //0.25 = correct for 6 pm that day
-  phase -= floor(phase);  //phase in cycle
+  days_since = JD - 2451550L;              //since noon on Jan. 6, 2000 (new moon @18:00)
+  phase = (days_since - 0.25) / 29.53059;  //0.25 = correct for 6 pm that day
+  phase -= floor(phase);                   //phase in cycle
   age = phase * 29.53059;
 
   // calculate fraction full
@@ -540,13 +533,12 @@ float MoonPhase(int nYear, int nMonth, int nDay) // calculate the current phase 
     Serial.println(age);
   }
 
-  return frac; //phase or age or frac, as desired
+  return frac;  //phase or age or frac, as desired
 }
 #endif
 
 // Just a handler for the pin interrupt.
-void wakeUp()
-{
+void wakeUp() {
   hasBeenInterupted = true;
   screenOnCountdownSec = screenOnTimeSec;
 }
