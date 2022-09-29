@@ -24,10 +24,10 @@ const boolean debug = false;
 #endif
 
 #include <SPI.h> // Required for RTClib to compile properly
-#include <RTClib.h> // From https://github.com/millerlp/RTClib
+#include <RTClib.h> // Originally from https://github.com/millerlp/RTClib, now using https://github.com/NeiroNx/RTCLib
 
 // Real Time Clock setup
-RTC_DS3231 RTC; // Uncomment when using this chip
+DS3231 RTC; // Uncomment when using this chip
 
 #include <Servo.h>
 #include "LowPower.h"
@@ -305,7 +305,7 @@ void loop() {
   char buf[20]; // declare a string buffer to hold the time result
   // Create a string representation of the date and time,
   // which will be put into 'buf'.
-  dateTime.toString(buf, 20);
+  dateTime.tostr(buf);
   // Now extract the time by making another character pointer that
   // is advanced 11 places into buf to skip over the date.
   char *timeStr = buf + 11;
